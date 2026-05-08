@@ -35,7 +35,7 @@ CREATE TABLE webhook_deliveries (
     locked_at TIMESTAMP NULL,
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL,
-    CONSTRAINT webhook_deliveries_status_check CHECK (status IN ('PENDING', 'PROCESSING', 'SUCCEEDED', 'FAILED')),
+    CONSTRAINT webhook_deliveries_status_check CHECK (status IN ('PENDING', 'PROCESSING', 'RETRYING', 'SUCCESS', 'FAILED', 'DEAD')),
     CONSTRAINT webhook_deliveries_attempt_count_check CHECK (attempt_count >= 0),
     CONSTRAINT webhook_deliveries_max_attempt_check CHECK (max_attempt > 0),
     CONSTRAINT webhook_deliveries_replay_count_check CHECK (replay_count >= 0)

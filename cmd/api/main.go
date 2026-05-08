@@ -49,8 +49,13 @@ func main() {
 	deliveryRepository := delivery.NewPostgresRepository(db)
 	deliveryService := delivery.NewService(deliveryRepository)
 	deliveryHandler := delivery.NewHandler(deliveryService)
+	deliverySender := delivery.NewSender(cfg.HTTPClientTimeout)
+	deliveryWorker := delivery.NewWorker(db, deliverySender, log)
 
 	app := newApp(log, subscriberHandler, eventHandler, deliveryHandler)
+	workerCtx, stopWorker := context.WithCancel(context.Background())
+	defer stopWorker()
+	go deliveryWorker.Start(workerCtx)
 
 	if err := app.Listen(":" + cfg.Port); err != nil {
 		log.Error("server stopped", "error", err)
