@@ -9,6 +9,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
 
+	"github.com/khalid/go-reliable-webhook/internal/delivery"
 	"github.com/khalid/go-reliable-webhook/internal/event"
 	"github.com/khalid/go-reliable-webhook/internal/platform/config"
 	"github.com/khalid/go-reliable-webhook/internal/platform/database"
@@ -45,8 +46,11 @@ func main() {
 	eventRepository := event.NewPostgresRepository(db)
 	eventService := event.NewService(eventRepository)
 	eventHandler := event.NewHandler(eventService)
+	deliveryRepository := delivery.NewPostgresRepository(db)
+	deliveryService := delivery.NewService(deliveryRepository)
+	deliveryHandler := delivery.NewHandler(deliveryService)
 
-	app := newApp(log, subscriberHandler, eventHandler)
+	app := newApp(log, subscriberHandler, eventHandler, deliveryHandler)
 
 	if err := app.Listen(":" + cfg.Port); err != nil {
 		log.Error("server stopped", "error", err)
@@ -54,7 +58,7 @@ func main() {
 	}
 }
 
-func newApp(log *slog.Logger, subscriberHandler *subscriber.Handler, eventHandler *event.Handler) *fiber.App {
+func newApp(log *slog.Logger, subscriberHandler *subscriber.Handler, eventHandler *event.Handler, deliveryHandler *delivery.Handler) *fiber.App {
 	app := fiber.New(fiber.Config{
 		AppName:               "go-reliable-webhook",
 		DisableStartupMessage: true,
@@ -74,6 +78,9 @@ func newApp(log *slog.Logger, subscriberHandler *subscriber.Handler, eventHandle
 	}
 	if eventHandler != nil {
 		eventHandler.RegisterRoutes(api)
+	}
+	if deliveryHandler != nil {
+		deliveryHandler.RegisterRoutes(api)
 	}
 
 	return app
