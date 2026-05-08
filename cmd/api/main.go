@@ -1,15 +1,19 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
 
 	"github.com/khalid/go-reliable-webhook/internal/platform/config"
+	"github.com/khalid/go-reliable-webhook/internal/platform/database"
 	"github.com/khalid/go-reliable-webhook/internal/platform/httpresponse"
 	"github.com/khalid/go-reliable-webhook/internal/platform/logger"
+	"github.com/khalid/go-reliable-webhook/internal/subscriber"
 )
 
 func main() {
@@ -20,7 +24,25 @@ func main() {
 	}
 
 	log := logger.New(cfg.AppEnv)
-	app := newApp(log)
+	db, err := database.Open(cfg.DatabaseURL)
+	if err != nil {
+		log.Error("failed to open database", "error", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := database.Ping(ctx, db); err != nil {
+		log.Error("failed to ping database", "error", err)
+		os.Exit(1)
+	}
+
+	subscriberRepository := subscriber.NewPostgresRepository(db)
+	subscriberService := subscriber.NewService(subscriberRepository)
+	subscriberHandler := subscriber.NewHandler(subscriberService)
+
+	app := newApp(log, subscriberHandler)
 
 	if err := app.Listen(":" + cfg.Port); err != nil {
 		log.Error("server stopped", "error", err)
@@ -28,7 +50,7 @@ func main() {
 	}
 }
 
-func newApp(log *slog.Logger) *fiber.App {
+func newApp(log *slog.Logger, subscriberHandler *subscriber.Handler) *fiber.App {
 	app := fiber.New(fiber.Config{
 		AppName:               "go-reliable-webhook",
 		DisableStartupMessage: true,
@@ -43,6 +65,9 @@ func newApp(log *slog.Logger) *fiber.App {
 			"status": "ok",
 		}))
 	})
+	if subscriberHandler != nil {
+		subscriberHandler.RegisterRoutes(api)
+	}
 
 	return app
 }

@@ -4,10 +4,10 @@ CREATE TABLE webhook_subscribers (
     url TEXT NOT NULL,
     event_type VARCHAR NOT NULL,
     secret TEXT NOT NULL,
-    status VARCHAR NOT NULL,
+    status VARCHAR NOT NULL DEFAULT 'ACTIVE',
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL,
-    CONSTRAINT webhook_subscribers_status_check CHECK (status IN ('active', 'inactive'))
+    CONSTRAINT webhook_subscribers_status_check CHECK (status IN ('ACTIVE', 'INACTIVE'))
 );
 
 CREATE TABLE webhook_events (

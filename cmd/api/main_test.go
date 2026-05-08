@@ -8,7 +8,7 @@ import (
 )
 
 func TestHealth(t *testing.T) {
-	app := newApp(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	app := newApp(slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 
 	req, err := http.NewRequest(http.MethodGet, "/api/v1/health", nil)
 	if err != nil {
