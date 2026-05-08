@@ -19,7 +19,7 @@ CREATE TABLE webhook_events (
     payload_fingerprint VARCHAR NULL,
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL,
-    CONSTRAINT webhook_events_status_check CHECK (status IN ('pending', 'processed', 'failed'))
+    CONSTRAINT webhook_events_status_check CHECK (status IN ('PENDING', 'COMPLETED', 'FAILED'))
 );
 
 CREATE TABLE webhook_deliveries (
@@ -35,7 +35,7 @@ CREATE TABLE webhook_deliveries (
     locked_at TIMESTAMP NULL,
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL,
-    CONSTRAINT webhook_deliveries_status_check CHECK (status IN ('pending', 'processing', 'succeeded', 'failed')),
+    CONSTRAINT webhook_deliveries_status_check CHECK (status IN ('PENDING', 'PROCESSING', 'SUCCEEDED', 'FAILED')),
     CONSTRAINT webhook_deliveries_attempt_count_check CHECK (attempt_count >= 0),
     CONSTRAINT webhook_deliveries_max_attempt_check CHECK (max_attempt > 0),
     CONSTRAINT webhook_deliveries_replay_count_check CHECK (replay_count >= 0)
@@ -60,8 +60,9 @@ CREATE TABLE webhook_delivery_attempts (
 CREATE INDEX idx_webhook_subscribers_event_type_status
     ON webhook_subscribers(event_type, status);
 
-CREATE INDEX idx_webhook_events_idempotency_key
-    ON webhook_events(idempotency_key);
+CREATE UNIQUE INDEX idx_webhook_events_idempotency_key
+    ON webhook_events(idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
 
 CREATE INDEX idx_webhook_deliveries_status_next_retry_at
     ON webhook_deliveries(status, next_retry_at);
