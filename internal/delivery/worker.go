@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -23,6 +24,8 @@ const (
 	workerPollInterval = 5 * time.Second
 	processingLockTTL  = 10 * time.Minute
 )
+
+var ErrStaleDeliveryLock = errors.New("stale delivery lock")
 
 type WebhookSender interface {
 	Send(ctx context.Context, req SendRequest) SendResult
@@ -44,6 +47,7 @@ type claimedDelivery struct {
 	Payload          []byte
 	AttemptCount     int
 	MaxAttempt       int
+	LockToken        string
 }
 
 type deliveryDecision struct {
@@ -95,9 +99,29 @@ func (w *Worker) ProcessBatch(ctx context.Context) error {
 			SubscriberSecret: item.SubscriberSecret,
 			Payload:          item.Payload,
 		})
+		if ctx.Err() != nil && result.ErrorMessage != nil {
+			result.ShouldRetry = true
+			result.RetryImmediately = true
+		}
 
-		if err := w.recordAttempt(ctx, item, result); err != nil {
+		recordCtx := ctx
+		var cancelRecord context.CancelFunc
+		if ctx.Err() != nil {
+			recordCtx, cancelRecord = context.WithTimeout(context.Background(), 5*time.Second)
+		}
+
+		if err := w.recordAttempt(recordCtx, item, result); err != nil {
+			if cancelRecord != nil {
+				cancelRecord()
+			}
+			if errors.Is(err, ErrStaleDeliveryLock) {
+				w.log.Info("stale_delivery_lock", "delivery_id", item.ID)
+				continue
+			}
 			w.log.Error("failed to record delivery attempt", "delivery_id", item.ID, "error", err)
+		}
+		if cancelRecord != nil {
+			cancelRecord()
 		}
 	}
 
@@ -110,6 +134,7 @@ func (w *Worker) recoverStaleProcessing(ctx context.Context) error {
 		SET status = $1,
 			next_retry_at = NOW(),
 			locked_at = NULL,
+			lock_token = NULL,
 			updated_at = NOW()
 		WHERE status = $2
 			AND locked_at IS NOT NULL
@@ -144,6 +169,7 @@ func (w *Worker) claimBatch(ctx context.Context) ([]claimedDelivery, error) {
 	}
 	defer tx.Rollback()
 
+	lockToken := uuid.NewString()
 	const query = `
 		WITH candidates AS (
 			SELECT id
@@ -157,13 +183,14 @@ func (w *Worker) claimBatch(ctx context.Context) ([]claimedDelivery, error) {
 		UPDATE webhook_deliveries d
 		SET status = $4,
 			locked_at = NOW(),
+			lock_token = $5,
 			updated_at = NOW()
 		FROM candidates c, webhook_events e, webhook_subscribers s
 		WHERE d.id = c.id
 			AND e.id = d.event_id
 			AND s.id = d.subscriber_id
 		RETURNING d.id, d.event_id, d.subscriber_id, s.url, s.secret, e.payload,
-			d.attempt_count, d.max_attempt`
+			d.attempt_count, d.max_attempt, d.lock_token`
 
 	rows, err := tx.QueryContext(
 		ctx,
@@ -172,6 +199,7 @@ func (w *Worker) claimBatch(ctx context.Context) ([]claimedDelivery, error) {
 		DeliveryStatusRetrying,
 		workerBatchSize,
 		DeliveryStatusProcessing,
+		lockToken,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("claim deliveries: %w", err)
@@ -190,6 +218,7 @@ func (w *Worker) claimBatch(ctx context.Context) ([]claimedDelivery, error) {
 			&item.Payload,
 			&item.AttemptCount,
 			&item.MaxAttempt,
+			&item.LockToken,
 		); err != nil {
 			return nil, fmt.Errorf("scan claimed delivery: %w", err)
 		}
@@ -253,10 +282,13 @@ func (w *Worker) recordAttempt(ctx context.Context, item claimedDelivery, result
 			next_retry_at = $3,
 			last_attempt_at = $4,
 			locked_at = NULL,
+			lock_token = NULL,
 			updated_at = $5
-		WHERE id = $6`
+		WHERE id = $6
+			AND status = $7
+			AND lock_token = $8`
 
-	if _, err := tx.ExecContext(
+	updateResult, err := tx.ExecContext(
 		ctx,
 		updateDelivery,
 		decision.Status,
@@ -265,8 +297,18 @@ func (w *Worker) recordAttempt(ctx context.Context, item claimedDelivery, result
 		now,
 		now,
 		item.ID,
-	); err != nil {
+		DeliveryStatusProcessing,
+		item.LockToken,
+	)
+	if err != nil {
 		return fmt.Errorf("update delivery after attempt: %w", err)
+	}
+	updated, err := updateResult.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read updated delivery count: %w", err)
+	}
+	if updated == 0 {
+		return ErrStaleDeliveryLock
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -283,7 +325,10 @@ func decideDeliveryStatus(result SendResult, attemptNumber int, maxAttempt int, 
 
 	if result.ShouldRetry {
 		if attemptNumber < maxAttempt {
-			nextRetryAt := now.Add(backoffDuration(attemptNumber + 1))
+			nextRetryAt := now
+			if !result.RetryImmediately {
+				nextRetryAt = now.Add(backoffDuration(attemptNumber + 1))
+			}
 			return deliveryDecision{Status: DeliveryStatusRetrying, NextRetryAt: &nextRetryAt}
 		}
 		return deliveryDecision{Status: DeliveryStatusDead}

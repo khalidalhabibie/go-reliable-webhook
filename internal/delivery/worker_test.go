@@ -39,6 +39,22 @@ func TestDecideDeliveryStatusRetrying(t *testing.T) {
 	}
 }
 
+func TestDecideDeliveryStatusRetryingImmediately(t *testing.T) {
+	now := time.Date(2026, 5, 8, 10, 0, 0, 0, time.UTC)
+
+	decision := decideDeliveryStatus(SendResult{ShouldRetry: true, RetryImmediately: true}, 1, 5, now)
+
+	if decision.Status != DeliveryStatusRetrying {
+		t.Fatalf("status = %q, want %q", decision.Status, DeliveryStatusRetrying)
+	}
+	if decision.NextRetryAt == nil {
+		t.Fatal("NextRetryAt is nil")
+	}
+	if !decision.NextRetryAt.Equal(now) {
+		t.Fatalf("NextRetryAt = %s, want %s", decision.NextRetryAt, now)
+	}
+}
+
 func TestDecideDeliveryStatusDeadWhenRetriesExhausted(t *testing.T) {
 	decision := decideDeliveryStatus(SendResult{ShouldRetry: true}, 5, 5, time.Now())
 

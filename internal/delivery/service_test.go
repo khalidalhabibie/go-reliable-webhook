@@ -129,12 +129,19 @@ func TestServiceGetByIDIncludesTruncatedAttemptResponseBody(t *testing.T) {
 }
 
 func TestServiceReplayPreservesAttemptCountAndSchedulesPending(t *testing.T) {
+	testServiceReplayAllowedStatus(t, DeliveryStatusFailed)
+	testServiceReplayAllowedStatus(t, DeliveryStatusDead)
+}
+
+func testServiceReplayAllowedStatus(t *testing.T, status string) {
+	t.Helper()
+
 	repo := &fakeRepository{
 		delivery: Delivery{
 			ID:           "delivery_1",
 			EventID:      "event_1",
 			SubscriberID: "subscriber_1",
-			Status:       DeliveryStatusDead,
+			Status:       status,
 			AttemptCount: 5,
 			MaxAttempt:   5,
 			ReplayCount:  1,
@@ -161,6 +168,34 @@ func TestServiceReplayPreservesAttemptCountAndSchedulesPending(t *testing.T) {
 	}
 	if res.NextRetryAt == nil {
 		t.Fatal("next_retry_at is nil")
+	}
+}
+
+func TestServiceReplayRejectsNonReplayableStatuses(t *testing.T) {
+	tests := []string{
+		DeliveryStatusPending,
+		DeliveryStatusProcessing,
+		DeliveryStatusSuccess,
+	}
+
+	for _, status := range tests {
+		t.Run(status, func(t *testing.T) {
+			repo := &fakeRepository{
+				delivery: Delivery{
+					ID:     "delivery_1",
+					Status: status,
+				},
+			}
+			service := NewService(repo)
+
+			_, err := service.Replay(context.Background(), "delivery_1")
+			if err != ErrNotReplayable {
+				t.Fatalf("Replay() error = %v, want %v", err, ErrNotReplayable)
+			}
+			if repo.replayed {
+				t.Fatal("repository Replay should not be called")
+			}
+		})
 	}
 }
 

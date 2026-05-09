@@ -25,11 +25,12 @@ type SendRequest struct {
 }
 
 type SendResult struct {
-	StatusCode   *int
-	ResponseBody *string
-	DurationMS   int
-	ErrorMessage *string
-	ShouldRetry  bool
+	StatusCode       *int
+	ResponseBody     *string
+	DurationMS       int
+	ErrorMessage     *string
+	ShouldRetry      bool
+	RetryImmediately bool
 }
 
 type Sender struct {

@@ -64,10 +64,22 @@ func (s *Service) Replay(ctx context.Context, id string) (DeliveryResponse, erro
 		return DeliveryResponse{}, ErrInvalidInput
 	}
 
+	existing, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return DeliveryResponse{}, err
+	}
+	if !isReplayableStatus(existing.Status) {
+		return DeliveryResponse{}, ErrNotReplayable
+	}
+
 	item, err := s.repo.Replay(ctx, id)
 	if err != nil {
 		return DeliveryResponse{}, err
 	}
 
 	return toDeliveryResponse(item), nil
+}
+
+func isReplayableStatus(status string) bool {
+	return status == DeliveryStatusFailed || status == DeliveryStatusDead
 }
