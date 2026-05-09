@@ -21,7 +21,7 @@ const (
 
 	workerBatchSize    = 10
 	workerPollInterval = 5 * time.Second
-	processingLockTTL  = 5 * time.Minute
+	processingLockTTL  = 10 * time.Minute
 )
 
 type WebhookSender interface {
@@ -108,21 +108,30 @@ func (w *Worker) recoverStaleProcessing(ctx context.Context) error {
 	const query = `
 		UPDATE webhook_deliveries
 		SET status = $1,
-			next_retry_at = NULL,
+			next_retry_at = NOW(),
 			locked_at = NULL,
 			updated_at = NOW()
 		WHERE status = $2
 			AND locked_at IS NOT NULL
 			AND locked_at <= NOW() - ($3::interval)`
 
-	if _, err := w.db.ExecContext(
+	result, err := w.db.ExecContext(
 		ctx,
 		query,
 		DeliveryStatusRetrying,
 		DeliveryStatusProcessing,
 		fmt.Sprintf("%d seconds", int(processingLockTTL.Seconds())),
-	); err != nil {
+	)
+	if err != nil {
 		return fmt.Errorf("recover stale processing deliveries: %w", err)
+	}
+
+	recovered, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read recovered delivery count: %w", err)
+	}
+	if recovered > 0 {
+		w.log.Info("delivery_processing_recovered", "count", recovered)
 	}
 
 	return nil

@@ -13,6 +13,7 @@ var ErrNotFound = errors.New("delivery not found")
 type Repository interface {
 	List(ctx context.Context, filters ListFilters) ([]Delivery, error)
 	GetByID(ctx context.Context, id string) (Delivery, error)
+	Replay(ctx context.Context, id string) (Delivery, error)
 }
 
 type PostgresRepository struct {
@@ -96,6 +97,55 @@ func (r *PostgresRepository) GetByID(ctx context.Context, id string) (Delivery, 
 	item.Attempts = attempts
 
 	return item, nil
+}
+
+func (r *PostgresRepository) Replay(ctx context.Context, id string) (Delivery, error) {
+	const query = `
+		UPDATE webhook_deliveries
+		SET status = $2,
+			next_retry_at = NOW(),
+			replay_count = replay_count + 1,
+			locked_at = NULL,
+			updated_at = NOW()
+		WHERE id = $1
+			AND status IN ($3, $4)
+		RETURNING id, event_id, subscriber_id, status, attempt_count, max_attempt,
+			next_retry_at, last_attempt_at, replay_count, created_at, updated_at`
+
+	item, err := scanDelivery(r.db.QueryRowContext(
+		ctx,
+		query,
+		id,
+		DeliveryStatusPending,
+		DeliveryStatusFailed,
+		DeliveryStatusDead,
+	))
+	if errors.Is(err, sql.ErrNoRows) {
+		exists, existsErr := r.exists(ctx, id)
+		if existsErr != nil {
+			return Delivery{}, existsErr
+		}
+		if !exists {
+			return Delivery{}, ErrNotFound
+		}
+		return Delivery{}, ErrNotReplayable
+	}
+	if err != nil {
+		return Delivery{}, fmt.Errorf("replay delivery: %w", err)
+	}
+
+	return item, nil
+}
+
+func (r *PostgresRepository) exists(ctx context.Context, id string) (bool, error) {
+	const query = `SELECT EXISTS(SELECT 1 FROM webhook_deliveries WHERE id = $1)`
+
+	var exists bool
+	if err := r.db.QueryRowContext(ctx, query, id).Scan(&exists); err != nil {
+		return false, fmt.Errorf("check delivery exists: %w", err)
+	}
+
+	return exists, nil
 }
 
 func (r *PostgresRepository) listAttempts(ctx context.Context, deliveryID string) ([]Attempt, error) {

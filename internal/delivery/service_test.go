@@ -11,6 +11,7 @@ type fakeRepository struct {
 	filters  ListFilters
 	items    []Delivery
 	delivery Delivery
+	replayed bool
 	err      error
 }
 
@@ -30,6 +31,23 @@ func (r *fakeRepository) GetByID(_ context.Context, id string) (Delivery, error)
 		return r.delivery, nil
 	}
 	return Delivery{}, ErrNotFound
+}
+
+func (r *fakeRepository) Replay(_ context.Context, id string) (Delivery, error) {
+	if r.err != nil {
+		return Delivery{}, r.err
+	}
+	if r.delivery.ID != id {
+		return Delivery{}, ErrNotReplayable
+	}
+
+	r.replayed = true
+	item := r.delivery
+	item.Status = DeliveryStatusPending
+	item.ReplayCount++
+	now := time.Now().UTC()
+	item.NextRetryAt = &now
+	return item, nil
 }
 
 func TestServiceListAppliesPaginationDefaults(t *testing.T) {
@@ -107,5 +125,50 @@ func TestServiceGetByIDIncludesTruncatedAttemptResponseBody(t *testing.T) {
 	}
 	if len(*res.Attempts[0].ResponseBody) != responseBodyPreviewLimit {
 		t.Fatalf("response body length = %d, want %d", len(*res.Attempts[0].ResponseBody), responseBodyPreviewLimit)
+	}
+}
+
+func TestServiceReplayPreservesAttemptCountAndSchedulesPending(t *testing.T) {
+	repo := &fakeRepository{
+		delivery: Delivery{
+			ID:           "delivery_1",
+			EventID:      "event_1",
+			SubscriberID: "subscriber_1",
+			Status:       DeliveryStatusDead,
+			AttemptCount: 5,
+			MaxAttempt:   5,
+			ReplayCount:  1,
+		},
+	}
+	service := NewService(repo)
+
+	res, err := service.Replay(context.Background(), "delivery_1")
+	if err != nil {
+		t.Fatalf("Replay() error = %v", err)
+	}
+
+	if !repo.replayed {
+		t.Fatal("repository Replay was not called")
+	}
+	if res.Status != DeliveryStatusPending {
+		t.Fatalf("status = %q, want %q", res.Status, DeliveryStatusPending)
+	}
+	if res.AttemptCount != 5 {
+		t.Fatalf("attempt_count = %d, want 5", res.AttemptCount)
+	}
+	if res.ReplayCount != 2 {
+		t.Fatalf("replay_count = %d, want 2", res.ReplayCount)
+	}
+	if res.NextRetryAt == nil {
+		t.Fatal("next_retry_at is nil")
+	}
+}
+
+func TestServiceReplayRejectsEmptyID(t *testing.T) {
+	service := NewService(&fakeRepository{})
+
+	_, err := service.Replay(context.Background(), " ")
+	if err != ErrInvalidInput {
+		t.Fatalf("Replay() error = %v, want %v", err, ErrInvalidInput)
 	}
 }

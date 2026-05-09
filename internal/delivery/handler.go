@@ -20,6 +20,7 @@ func NewHandler(service *Service) *Handler {
 func (h *Handler) RegisterRoutes(router fiber.Router) {
 	router.Get("/deliveries", h.list)
 	router.Get("/deliveries/:id", h.getByID)
+	router.Post("/deliveries/:id/replay", h.replay)
 }
 
 func (h *Handler) list(c *fiber.Ctx) error {
@@ -55,6 +56,15 @@ func (h *Handler) getByID(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(httpresponse.OK(res))
 }
 
+func (h *Handler) replay(c *fiber.Ctx) error {
+	res, err := h.service.Replay(c.UserContext(), c.Params("id"))
+	if err != nil {
+		return writeError(c, err)
+	}
+
+	return c.Status(fiber.StatusOK).JSON(httpresponse.OK(res))
+}
+
 func optionalPositiveInt(value string) (int, error) {
 	if value == "" {
 		return 0, nil
@@ -72,6 +82,8 @@ func writeError(c *fiber.Ctx, err error) error {
 		return c.Status(fiber.StatusBadRequest).JSON(httpresponse.Error(err.Error()))
 	case errors.Is(err, ErrNotFound):
 		return c.Status(fiber.StatusNotFound).JSON(httpresponse.Error(err.Error()))
+	case errors.Is(err, ErrNotReplayable):
+		return c.Status(fiber.StatusConflict).JSON(httpresponse.Error(err.Error()))
 	default:
 		return c.Status(fiber.StatusInternalServerError).JSON(httpresponse.Error("internal server error"))
 	}

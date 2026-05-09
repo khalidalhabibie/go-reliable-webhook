@@ -13,6 +13,7 @@ const (
 )
 
 var ErrInvalidInput = errors.New("invalid delivery input")
+var ErrNotReplayable = errors.New("delivery is not replayable")
 
 type Service struct {
 	repo Repository
@@ -56,4 +57,17 @@ func (s *Service) GetByID(ctx context.Context, id string) (DeliveryDetailRespons
 	}
 
 	return toDetailResponse(item), nil
+}
+
+func (s *Service) Replay(ctx context.Context, id string) (DeliveryResponse, error) {
+	if strings.TrimSpace(id) == "" {
+		return DeliveryResponse{}, ErrInvalidInput
+	}
+
+	item, err := s.repo.Replay(ctx, id)
+	if err != nil {
+		return DeliveryResponse{}, err
+	}
+
+	return toDeliveryResponse(item), nil
 }

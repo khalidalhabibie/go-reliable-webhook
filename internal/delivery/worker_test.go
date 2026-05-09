@@ -87,3 +87,9 @@ func TestBackoffDuration(t *testing.T) {
 		})
 	}
 }
+
+func TestProcessingLockTTL(t *testing.T) {
+	if processingLockTTL != 10*time.Minute {
+		t.Fatalf("processingLockTTL = %s, want 10m", processingLockTTL)
+	}
+}
