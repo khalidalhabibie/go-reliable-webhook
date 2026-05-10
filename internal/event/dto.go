@@ -23,15 +23,5 @@ type EventResponse struct {
 }
 
 func toResponse(evt Event) EventResponse {
-	return EventResponse{
-		ID:                 evt.ID,
-		EventType:          evt.EventType,
-		Payload:            evt.Payload,
-		Status:             evt.Status,
-		IdempotencyKey:     evt.IdempotencyKey,
-		PayloadFingerprint: evt.PayloadFingerprint,
-		DeliveryCount:      evt.DeliveryCount,
-		CreatedAt:          evt.CreatedAt,
-		UpdatedAt:          evt.UpdatedAt,
-	}
+	return EventResponse(evt)
 }
