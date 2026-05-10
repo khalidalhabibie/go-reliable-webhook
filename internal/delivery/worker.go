@@ -167,7 +167,7 @@ func (w *Worker) claimBatch(ctx context.Context) ([]claimedDelivery, error) {
 	if err != nil {
 		return nil, fmt.Errorf("begin claim delivery transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	lockToken := uuid.NewString()
 	const query = `
@@ -204,7 +204,7 @@ func (w *Worker) claimBatch(ctx context.Context) ([]claimedDelivery, error) {
 	if err != nil {
 		return nil, fmt.Errorf("claim deliveries: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	deliveries := make([]claimedDelivery, 0, workerBatchSize)
 	for rows.Next() {
@@ -240,7 +240,7 @@ func (w *Worker) recordAttempt(ctx context.Context, item claimedDelivery, result
 	if err != nil {
 		return fmt.Errorf("begin record attempt transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	now := w.now().UTC()
 	attemptNumber := item.AttemptCount + 1

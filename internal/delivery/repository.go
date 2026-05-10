@@ -58,7 +58,7 @@ func (r *PostgresRepository) List(ctx context.Context, filters ListFilters) ([]D
 	if err != nil {
 		return nil, fmt.Errorf("list deliveries: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	deliveries := make([]Delivery, 0)
 	for rows.Next() {
@@ -160,7 +160,7 @@ func (r *PostgresRepository) listAttempts(ctx context.Context, deliveryID string
 	if err != nil {
 		return nil, fmt.Errorf("list delivery attempts: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	attempts := make([]Attempt, 0)
 	for rows.Next() {

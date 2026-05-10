@@ -64,7 +64,7 @@ func (s *Sender) Send(ctx context.Context, req SendRequest) SendResult {
 	if err != nil {
 		return errorResult(start, err, shouldRetryError(err))
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, storedResponseBodyLimit+1))
 	if readErr != nil {

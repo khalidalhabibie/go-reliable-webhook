@@ -61,7 +61,7 @@ func (r *PostgresRepository) List(ctx context.Context) ([]Subscriber, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list subscribers: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	subs := make([]Subscriber, 0)
 	for rows.Next() {

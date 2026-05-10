@@ -30,7 +30,7 @@ func (r *PostgresRepository) CreateWithDeliveries(ctx context.Context, evt Event
 	if err != nil {
 		return Event{}, false, fmt.Errorf("begin event transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	if evt.IdempotencyKey != nil {
 		existing, found, err := getEventByIdempotencyKey(ctx, tx, *evt.IdempotencyKey, true)
@@ -145,7 +145,7 @@ func activeSubscriberIDs(ctx context.Context, tx *sql.Tx, eventType string) ([]s
 	if err != nil {
 		return nil, fmt.Errorf("find active subscribers: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	ids := make([]string, 0)
 	for rows.Next() {
